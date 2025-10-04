@@ -50,7 +50,9 @@ def estimate_parameters(X, Y, N):
         blocks_Y.append(Y_sorted[mask])
     
     theta_22_sum = 0
-    sigma2_sum = 0
+    sigma2_sum = 0 
+    theta_total = 0 # to divide by the right amount of data used
+    sigma2_total = 0
     
     # Fit polynomials in each block
     for j in range(N):
@@ -59,12 +61,6 @@ def estimate_parameters(X, Y, N):
             
         X_block = blocks_X[j].reshape(-1, 1)
         Y_block = blocks_Y[j]
-            
-        # Fit quartic polynomial
-        poly_reg = Pipeline([
-            ('poly', PolynomialFeatures(degree=4)),
-            ('linear', LinearRegression())
-        ])
         
         # print(f"X= {X_block}")
         polynomial_object = PolynomialFeatures(degree=4)
@@ -88,10 +84,12 @@ def estimate_parameters(X, Y, N):
             X_to_use = X_transformed[i, :].reshape(1, -1)
             y_pred = polynomial_regression.predict(X_to_use)[0]
             sigma2_sum += (Y_block[i] - y_pred)**2
+
+        theta_total += len(X_block)
+        sigma2_total += 1
     
-    
-    theta_22_hat = theta_22_sum / n 
-    sigma2_hat = sigma2_sum / (n - 5*N)
+    theta_22_hat = theta_22_sum / theta_total 
+    sigma2_hat = sigma2_sum / (n - 5*sigma2_total)
     
     return theta_22_hat, sigma2_hat
 
@@ -178,13 +176,13 @@ def run_simulation_bandwidth(n_values, beta_params, iterations):
 
 def run_simulation_blocks(N_values, n_values, beta_params, iterations):
     """ function to study the effect of block size on the bandwidth"""
-    results_blocks = {"N": [], "n": [], "(alpha,beta)": [], "h_AMISE": [], "n": []}
+    results_blocks = {"N": [], "n": [], "(alpha,beta)": [], "h_AMISE": [], "n": [], "theta_hat": [], "sigma_hat": []}
     print("Studying effect of block size N...")
 
     for n in n_values:
         for N in N_values:
             for alpha, beta_val in beta_params:
-                record_H = np.zeros(iterations)
+                # record_H = np.zeros(iterations)
                 for i in range(iterations):
                     X, Y = generate_data(n, alpha=alpha, beta_param=beta_val, random_state=N)
                     theta_22_hat, sigma2_hat = estimate_parameters(X, Y, N)
@@ -192,13 +190,16 @@ def run_simulation_blocks(N_values, n_values, beta_params, iterations):
                     if theta_22_hat > 0:
                         h_AMISE = compute_h_AMISE(n, theta_22_hat, sigma2_hat)
                     else:
+                        print("problem")
                         h_AMISE = np.nan
-                    record_H[i] = h_AMISE
+                    # record_H[i] = h_AMISE
 
-                results_blocks["N"].append(N)
-                results_blocks["n"].append(n)
-                results_blocks["(alpha,beta)"].append((alpha, beta_val))
-                results_blocks["h_AMISE"].append(np.mean(record_H))
+                    results_blocks["N"].append(N)
+                    results_blocks["n"].append(n)
+                    results_blocks["(alpha,beta)"].append((alpha, beta_val))
+                    results_blocks["h_AMISE"].append(h_AMISE)
+                    results_blocks["theta_hat"].append(theta_22_hat)
+                    results_blocks["sigma_hat"].append(sigma2_hat)
 
     df_results_blocks = pd.DataFrame(results_blocks)
     return df_results_blocks
@@ -210,7 +211,6 @@ def run_simulation_optimal_N(n_values, beta_params, iterations):
     print("Studying relationship between N and n...")
     for n in n_values:
         for alpha, beta_val in beta_params:
-            optimal_N_list = np.zeros(iterations)
             for i in range(iterations):
                 X, Y = generate_data(n, alpha=alpha, beta_param=beta_val, random_state=i*n)
                 optimal_N = find_optimal_N(X, Y)
@@ -253,7 +253,7 @@ def plot_results(df_optimal_N, df_bandwidth, df_results_blocks):
     plt.tight_layout()
     plt.savefig("plot1_sample_size_effect.png", dpi=300, bbox_inches='tight')
     plt.show()
-    
+
     # Plot 2: Effect of block size N
     plt.figure(figsize=(6.5, 4.5))
     sns.lineplot(data=df_results_blocks_str, x='N', y='h_AMISE', 
@@ -267,6 +267,79 @@ def plot_results(df_optimal_N, df_bandwidth, df_results_blocks):
     plt.savefig("plot2_block_size_effect.png", dpi=300, bbox_inches='tight')
     plt.show()
     
+    # # h_mise vs blocks
+    # g = sns.catplot(
+    #     data=df_results_blocks_str,
+    #     x='N', y='h_AMISE',
+    #     col='n', kind='point',
+    #     col_wrap=3, sharey=True,
+    #     height=3.5, aspect=1.1,
+    #     palette='rocket',  
+    #     linewidth=1,
+    #     hue='n',
+    #     legend=False
+    # )
+    # g.set_titles("Sample size n = {col_name}")
+    # g.set_axis_labels("Number of Blocks N", "Bandwidth h_AMISE")
+    # for ax in g.axes.flatten():
+    #     ax.tick_params(axis='x', rotation=45)
+    #     ax.set_xlabel("N") 
+    # plt.subplots_adjust(top=0.88)
+    # g.fig.suptitle("Bandwidth vs Number of Blocks N", fontsize=18, fontweight='bold')
+    # plt.tight_layout()
+    # plt.savefig("test_hamise.png", dpi=300, bbox_inches='tight')
+    # plt.show()
+
+
+    # theta vs blocks
+    df_results_blocks_str["log_theta"] = np.log(df_results_blocks_str["theta_hat"])
+    g = sns.catplot(
+        data=df_results_blocks_str,
+        x='N', y='log_theta',
+        col='n', kind='point',
+        col_wrap=3, sharey=True,
+        height=3.5, aspect=1.1,
+        palette='dark:blue',
+        linewidth=1,
+        hue='n',
+        errorbar="sd",
+        capsize=0.2,
+        legend=False
+    )
+    g.set_titles("Sample size n = {col_name}")
+    g.set_axis_labels("Number of Blocks N", "Log-Theta")
+    for ax in g.axes.flatten():
+        ax.set_xlabel("N") 
+    plt.subplots_adjust(top=0.88)
+    g.fig.suptitle("Bandwidth vs Log-Theta", fontsize=18, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig("N_vs_theta.png", dpi=300, bbox_inches='tight')
+    plt.show()
+
+    # sigma vs blocks
+    g = sns.catplot(
+        data=df_results_blocks_str,
+        x='N', y='sigma_hat',
+        col='n', kind='point',
+        col_wrap=3, sharey=True,
+        height=3.5, aspect=1.1,
+        palette="dark:green",  
+        linewidth=1,
+        hue='n',
+        errorbar="sd",
+        legend=False,
+        capsize=0.2 
+    )
+    g.set_titles("Sample size n = {col_name}")
+    g.set_axis_labels("Number of Blocks N", "Sigma")
+    for ax in g.axes.flatten():
+        ax.set_xlabel("N") 
+    plt.subplots_adjust(top=0.88)
+    g.fig.suptitle("Bandwidth vs Sigma", fontsize=18, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig("N_vs_sigma.png", dpi=300, bbox_inches='tight')
+    plt.show()
+
     # Plot 3: Effect of beta distribution
     g = sns.catplot(
         data=df_results_str,
@@ -352,8 +425,7 @@ if __name__ == "__main__":
     iterations = 5
     df_bandwidth = run_simulation_bandwidth(n_values, beta_params, iterations)
 
-    n_fixed = 1000
-    N_values = list(range(2, 11)) 
+    N_values = list(range(2, 5+1)) 
     df_results_blocks = run_simulation_blocks(N_values, n_values, beta_params, iterations)
 
     n_values = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 200, 250, 300, 500, 1000, 2000, 5000]

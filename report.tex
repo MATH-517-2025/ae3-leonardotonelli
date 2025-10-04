@@ -173,14 +173,14 @@ We need to show $\sum_{i=1}^n w_{ni}(x) = 1$.
 \noindent This completes the proof that the weights sum to 1.
 
 \section{Practical Exercise}
-
+\subsection{Simulation Study Setup}
 \subsubsection*{Aim of the Study}
 This simulation study investigates how the asymptotically optimal bandwidth $h_{AMISE}$ for local linear regression depends on various factors: sample size $n$, block size $N$ used in parameter estimation, and the distribution of covariates $X$ through Beta distribution parameters $(\alpha, \beta)$.
 The function to estimate will be referenced multiple times, then we put a figure here displaying it in a plot, for reference:
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.6\textwidth]{real_y.png}
-\caption{Function to estimate}
+\caption{The true regression function $m(x) = \sin\left((x/3 + 0.1)^{-1}\right)$ to be estimated}
 \label{fig:y_real}
 \end{figure}
 
@@ -201,7 +201,7 @@ The study is implemented in python, and its key components are:
     In this way each block has the same amount of points, facilitating fitting $\hat{m}(x)$ for each block in undersampled examples of our covariates and sparse Beta distribution.
     \begin{itemize}
         \item Partitioned into $N$ blocks using $\texttt{np.quantile(X, np.linspace(0, 1, N+1))}$
-        \item Each block contains approximately equal number of observations: $\text{block}_j = [q_{j-1}, q_j]$
+        \item Each block contains approximately equal number of observations: $\text{block}_j = [q_{(j-1)/N}, q_{j/N}] \quad \text{for } j=1,\dots,N$
         \item blocks with $<5$ observations skipped to ensure reliable polynomial fitting
     \end{itemize}
     
@@ -217,6 +217,9 @@ The study is implemented in python, and its key components are:
     \[
     h_{AMISE} = n^{-1/5} \left( \frac{35 \hat{\sigma}^2 \cdot |\text{supp}(X)|}{\hat{\theta}_{22}} \right)^{1/5}
     \]
+    and since $X \sim Beta$:
+    $$
+    |\text{supp}(X)| = 1 \quad \text{(for Beta distribution on [0,1])}$$
 
     \item \textbf{Simulations}: 
     The simulations are run in \textbf{three} different data collection loops. In the first one, the bandwidth $h_{AMISE}$
@@ -234,7 +237,7 @@ C_p(N) = \frac{RSS(N)}{RSS(N_{\max})/(n-5N_{\max})} - (n - 10N)
 \]
 where $N_{\max} = \min(n/20, 10)$ ensures sufficient data per block. The implementation also includes robust error handling for edge cases.
 
-\subsubsection*{Results and Discussion}
+\subsection{Results and Discussion}
 
 \paragraph{Effect of Sample Size ($n$)}
 
@@ -251,13 +254,8 @@ which explains its slower rate of decrease as the sample size grows.
 \end{figure}
 
 
-\paragraph{Behavior of $h_{AMISE}$ as $N$ Grows} The graph in Figure~\ref{fig:block_N} reveals a clear \textbf{inverse relationship} between the optimal bandwidth $h_{\text{AMISE}}$ and the block size $N$. For all covariate distributions studied, 
-the bandwidth decreases gradually as the number of blocks \textbf{increases}. This relationship is mathematically grounded in the formula for $h_{\text{AMISE}}$, which depends linearly on the estimate $\hat{\sigma}^2$, a quantity that itself has an inverse 
-relationship with $N$. Additionally, the model's performance within each block improves as $N$ increases, this decreasese the MSE at each block and hence the $\hat{\sigma}^2$. \\
-
-To illustrate this \textbf{intuitively}, let's consider the case of high fixed amount of data $n=1000$.  For small $N$, each local estimate $\hat{m}_j$ is already a good fit for the data within its large block, as the model has ample data. 
-However, as $N$ increases and the number of data points per block decreases, the degree 4 polynomial fit becomes increasingly flexible relative to the reduced data, allowing it to capture finer, local variations. 
-This gradually improves the fit, reducing residuals and thus $\hat{\sigma}^2$, until it potentially leads to overfitting in the limit. This mechanism explains the observed decrease in $\hat{\sigma}^2$ and, consequently, in $h_{\text{AMISE}}$. 
+\paragraph{Behavior of $h_{AMISE}$ as $N$ Grows} The graph in Figure~\ref{fig:block_N} reveals a clear \textbf{inverse relationship} between the optimal bandwidth $h_{\text{AMISE}}$ and the block size $N$. For all covariate distributions studied,
+the bandwidth decreases gradually as the number of blocks \textbf{increases}.
 
 \begin{figure}[H]
 \centering
@@ -266,6 +264,66 @@ This gradually improves the fit, reducing residuals and thus $\hat{\sigma}^2$, u
 \label{fig:block_N}
 \end{figure}
 
+To investigate this relationship we plot the variations of our estimates for $\hat{\theta}_{22}$ and $\hat{\sigma}^2$ when the number of blocks
+increases from 2 to 5. From Figures \ref{fig:sigma}, \ref{fig:theta} we can see that the estimates for the variance remains in the interval $[0.9,1.10]$ without a clear pattern. On the other hand, $\hat{\theta}_{22}$
+rises at increasing blocks number $N$, for every sample size $n$. Notice how the plot is in log scale, to highlight the difference between the values.
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.5\textwidth]{N_vs_sigma.png}
+\caption{Impact of block numbers $N$ on $\hat{\sigma}^2$}
+\label{fig:sigma}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.5\textwidth]{N_vs_theta.png}
+\caption{Impact of block numbers $N$ on $\hat{\theta}_{22}$}
+\label{fig:theta}
+\end{figure}
+
+This is because as $N$ increases, the data is partitioned into smaller, more localized subsets. 
+Within these smaller blocks, the local quartic polynomial $\hat{m}_j$ can more flexibly adapt 
+to local variations and curvature, leading to fitted functions $\hat{m}_j(x)$ that are more 
+"wiggly" or have larger second derivatives within their respective blocks. Consequently, when 
+these local second derivatives $\hat{m}''_j(X_i)$ are aggregated across the entire dataset to 
+compute $\hat{\theta}_{22}$, the result is a larger estimated curvature. Since the formula for 
+$h_{AMISE}$ is inversely proportional to the fifth root of $\theta_{22}$ ($h_{AMISE} \propto 
+(\theta_{22})^{-1/5}$), the observed increase in $\hat{\theta}_{22}$ directly drives the 
+decrease in the optimal bandwidth.
+
+\paragraph{Should $N$ depend on $n$? Why?}
+Intuitively, $N$ should depend on $n$ because the number of blocks governs a fundamental 
+trade-off. With too few blocks ($N$ too small for a given $n$), the local polynomial models 
+are too rigid and may fail to capture the underlying function's genuine local curvature, 
+leading to high bias. Conversely, with too many blocks ($N$ too large), each block contains 
+too few data points to reliably fit a quartic polynomial, causing the estimates to become 
+unstable and noisy—a clear case of overfitting that increases variance. Therefore, the 
+optimal $N$ must scale with $n$ to navigate this bias-variance trade-off; more data allows 
+for a finer partition of the support to reduce bias, but only if each resulting block still 
+has sufficient data to control variance.
+
+To test this idea, we examined how the optimal number of blocks $N$ (using Mallow criterion) changes with sample size $n$.
+Figure~\ref{fig:Nvsn} shows this relationship. We see a gradual increase in optimal $N$ as $n$ 
+grows, suggesting that more data allows for finer data partitioning. With small samples, using 
+few blocks prevents overfitting. With larger samples, we can use more blocks to better capture 
+local patterns. However, this growth eventually levels off because the true function's 
+complexity is limited—using too many blocks eventually provides no further benefit.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.7\textwidth]{plot4_block_vs_n.png}
+\caption{Relationship between optimal $N$ and sample size $n$}
+\label{fig:Nvsn}
+\end{figure}
+
+Interestingly, for left-skewed Beta distributions, the optimal number of blocks stays at 
+$N^* = 1$ regardless of sample size. This occurs because these distributions sample mostly 
+from the right side of the function's domain, where $m(x)$ behaves simply and linearly. 
+Here, a single global polynomial fits well, making multiple blocks unnecessary. This shows 
+that the relationship between $n$ and $N$ depends strongly on where the data is concentrated 
+and the local complexity of the function in those regions.
 
 
 \paragraph{Bandwidth $h_{\text{AMISE}}$ with different sampling distributions}
@@ -303,29 +361,6 @@ to a final estimate that is more likely to be wiggly and overfit to the specific
 \label{fig:beta}
 \end{figure}
 
-
-
-
-\paragraph{Should $N$ depend on $n$? Why?}
-Figure~\ref{fig:Nvsn} illustrates the relationship between the optimal block count $N$ and the sample size $n$. 
-The results show a \textbf{slow linear relationship} between the two in most of the covariates sampling settings.
-This could signal that $N$ should depend on $n$ linearly. 
-We can try to provide an interpretion to this result. With smaller samples, a lower $N$ is optimal to ensure each 
-block contains enough data points for a stable polynomial fit. As $n$ increases, we can afford to use a larger $N$, which allows the local regressions to adapt more flexibly to regional variations in the data, thereby reducing bias in the block models. 
-However, this relationship is \textbf{not} linear \textbf{indefinitely}. The complexity of the true function $m(x)$ imposes an upper bound; beyond a certain sample size, increasing $N$ further provides risk of overfitting, 
-leading to the observed stabilization. According to this reasoning, the block size $N$ should be chosen in consideration of the sample size $n$ to balance the bias-variance trade-off effectively.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.7\textwidth]{plot4_block_vs_n.png}
-\caption{Relationship between optimal $N$ and the sample size $N$}
-\label{fig:Nvsn}
-\end{figure}
-In the plots, the left-skewed Beta distributions demonstrates a \textbf{constant} optimal block number around $N^* = 1$ across different sample sizes. This result can be explained by the fact that this distribution primarily samples covariates from 
-the right region of the function's support, where $m(x)$ exhibits simple, linear behavior. 
-In this region, a single global degree 4 polynomial provides a good fit, resulting in a very low Residual Sum of Squares (RSS) without needing localized models. 
-This case illustrates that the linear relationship between $n$ and $N^*$ observed for other distributions is not universal. 
-The optimal block count is ultimately dictated by the interplay between sample size and the local complexity of the function within the data-dense regions of the covariate space.
 
 \subsubsection*{Conclusion}
 This simulation study confirms that the optimal bandwidth $h_{\text{AMISE}}$ is \textbf{sensitive} to the sample size $n$, the block parameter $N$, and the covariate distribution. 
